@@ -41,7 +41,7 @@ python ideenkarte.py related I1
 python ideenkarte.py seed --database data/new-ideas.rl
 ```
 
-`graph` produces JSON directly from Relate. `related I1` finds I2 via Stadtgruen and I4 via Klima. The seed command refuses to overwrite an existing store. The included graph is ready to inspect; seeding is optional.
+`graph` produces JSON directly from Relate. `related I1` finds I2 via Stadtgruen and I4 via Klima. Because the Relate CLI can update a store even for a read query, each read command copies the source database into a temporary directory, queries that snapshot and cleans it up afterwards. This preserves the source file and keeps all queries in one `graph` call on the same snapshot. The seed command writes a new store and refuses to overwrite an existing one. The included graph is ready to inspect; seeding is optional.
 
 ## Verify
 

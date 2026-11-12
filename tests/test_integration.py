@@ -1,8 +1,10 @@
 import json
+import hashlib
 import os
 import subprocess
 import sys
 import tempfile
+import shutil
 import unittest
 from pathlib import Path
 
@@ -11,6 +13,18 @@ APP = ROOT / 'ideenkarte.py'
 CLI = ROOT / 'bin' / 'relate.exe'
 
 class RelateIntegration(unittest.TestCase):
+    def test_read_commands_leave_source_database_unchanged(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db = Path(tmp) / 'ideas.rl'
+            shutil.copyfile(ROOT / 'data' / 'ideas-v2.rl', db)
+            for command in (['related', 'I1'], ['list'], ['graph']):
+                with self.subTest(command=command):
+                    before = hashlib.sha256(db.read_bytes()).hexdigest()
+                    result = subprocess.run([sys.executable, str(APP), *command, '--database', str(db), '--relate', str(CLI)], capture_output=True, text=True)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertTrue(json.loads(result.stdout))
+                    self.assertEqual(hashlib.sha256(db.read_bytes()).hexdigest(), before, f'{command[0]} changed the source database')
+
     def test_persistent_graph_survives_reopen_and_finds_shared_theme(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / 'ideas.rl'

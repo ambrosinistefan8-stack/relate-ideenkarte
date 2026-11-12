@@ -2,8 +2,10 @@
 import argparse
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
@@ -57,27 +59,36 @@ def main():
     else:
         if not args.database.exists():
             parser.error('Store not found; run seed first: ' + str(args.database))
-        if args.command == 'related':
-            if not args.idea_id:
-                parser.error('related requires an idea id')
-            q = ('MATCH (source:Idea {id:$id})-[:HAS_THEME]->(theme:Theme)<-[:HAS_THEME]-(other:Idea) '
-                 'WHERE other.id <> source.id '
-                 'RETURN other.id AS idea_id, other.title AS title, theme.name AS theme ORDER BY idea_id, theme')
-            rows = run_query(args.relate, args.database, q, [f'id={args.idea_id}'])
-        elif args.command == 'graph':
-            rows = {
-                'ideas': run_query(args.relate, args.database, 'MATCH (i:Idea) RETURN i.id AS id, i.title AS title, i.description AS description ORDER BY id'),
-                'themes': run_query(args.relate, args.database, 'MATCH (t:Theme) RETURN t.name AS name ORDER BY name'),
-                'links': run_query(args.relate, args.database, 'MATCH (i:Idea)-[:HAS_THEME]->(t:Theme) RETURN i.id AS idea_id, t.name AS theme ORDER BY idea_id, theme'),
-                'documents': run_query(args.relate, args.database, 'MATCH (n:Document) RETURN n.id AS id, n.title AS title ORDER BY id'),
-                'tasks': run_query(args.relate, args.database, 'MATCH (n:Task) RETURN n.id AS id, n.title AS title ORDER BY id'),
-                'agents': run_query(args.relate, args.database, 'MATCH (n:Agent) RETURN n.id AS id, n.name AS name ORDER BY id'),
-                'relations': run_query(args.relate, args.database, 'MATCH (a)-[r]->(b) WHERE a.id IS NOT NULL AND b.id IS NOT NULL RETURN a.id AS source, type(r) AS type, b.id AS target ORDER BY source, target'),
-            }
-        else:
-            rows = run_query(args.relate, args.database, 'MATCH (i:Idea) RETURN i.id AS idea_id, i.title AS title, i.description AS description ORDER BY idea_id')
+        # Relate may update its store even for MATCH queries. Execute the whole
+        # read operation against one disposable snapshot, preserving the source.
+        with tempfile.TemporaryDirectory(prefix='ideenkarte-read-') as temp_dir:
+            snapshot = Path(temp_dir) / 'ideas.rl'
+            shutil.copyfile(args.database, snapshot)
+            rows = read_graph(args, parser, snapshot)
         print(json.dumps(rows, ensure_ascii=False, indent=2))
 
+
+def read_graph(args, parser, snapshot):
+    if args.command == 'related':
+        if not args.idea_id:
+            parser.error('related requires an idea id')
+        q = ('MATCH (source:Idea {id:$id})-[:HAS_THEME]->(theme:Theme)<-[:HAS_THEME]-(other:Idea) '
+             'WHERE other.id <> source.id '
+             'RETURN other.id AS idea_id, other.title AS title, theme.name AS theme ORDER BY idea_id, theme')
+        rows = run_query(args.relate, snapshot, q, [f'id={args.idea_id}'])
+    elif args.command == 'graph':
+        rows = {
+            'ideas': run_query(args.relate, snapshot, 'MATCH (i:Idea) RETURN i.id AS id, i.title AS title, i.description AS description ORDER BY id'),
+            'themes': run_query(args.relate, snapshot, 'MATCH (t:Theme) RETURN t.name AS name ORDER BY name'),
+            'links': run_query(args.relate, snapshot, 'MATCH (i:Idea)-[:HAS_THEME]->(t:Theme) RETURN i.id AS idea_id, t.name AS theme ORDER BY idea_id, theme'),
+            'documents': run_query(args.relate, snapshot, 'MATCH (n:Document) RETURN n.id AS id, n.title AS title ORDER BY id'),
+            'tasks': run_query(args.relate, snapshot, 'MATCH (n:Task) RETURN n.id AS id, n.title AS title ORDER BY id'),
+            'agents': run_query(args.relate, snapshot, 'MATCH (n:Agent) RETURN n.id AS id, n.name AS name ORDER BY id'),
+            'relations': run_query(args.relate, snapshot, 'MATCH (a)-[r]->(b) WHERE a.id IS NOT NULL AND b.id IS NOT NULL RETURN a.id AS source, type(r) AS type, b.id AS target ORDER BY source, target'),
+        }
+    else:
+        rows = run_query(args.relate, snapshot, 'MATCH (i:Idea) RETURN i.id AS idea_id, i.title AS title, i.description AS description ORDER BY idea_id')
+    return rows
 
 if __name__ == '__main__':
     try:
